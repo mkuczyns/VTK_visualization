@@ -4,10 +4,12 @@
 *   Created by:     Michael Kuczynski
 *   Created on:     16/02/2019
 *   Version:        1.0
-*   Description:    
+*   Description:    Reads DICOM or NIfTI images and can display the 3D volume
+*                   as either a surface volume using the Marching Cubes algorithm
+*                   or as a ray-cast volume using ray-casting.
 ****************************************************************************/
 
-#include "interactorStyler.hxx"
+#include "helperFunctions.hxx"
 
 int main(int argc, char* argv[])
 {
@@ -82,126 +84,128 @@ int main(int argc, char* argv[])
       }
   } 
 
-  // Apply a Guassian filter before segmentation
-  // std::cout << "Filtering input image with a 3D Gaussian filter: Standard Deviation = 1.0 \n";
+    // Apply a Guassian filter before segmentation
+    std::cout << "Filtering input image with a 3D Gaussian filter: Standard Deviation = 1.0 \n";
 
-  // vtkSmartPointer<vtkImageGaussianSmooth> gaussian = vtkSmartPointer<vtkImageGaussianSmooth>::New();
-  // gaussian->SetStandardDeviation( 1.5 );
-  // gaussian->SetDimensionality( 3 );
-  // gaussian->SetInputData( volume );
-  // gaussian->Update();
+    vtkSmartPointer<vtkImageGaussianSmooth> gaussian = vtkSmartPointer<vtkImageGaussianSmooth>::New();
+    gaussian->SetStandardDeviation( 0.8 );
+    gaussian->SetDimensionality( 3 );
+    gaussian->SetInputData( volume );
+    gaussian->Update();
 
-  // volume = gaussian->GetOutput();
+    volume = gaussian->GetOutput();
 
-  // // Perform segmentation to extract bone
-  // std::cout << "Performing image segmentation for bone \n";
+    // Create the renderer and render window
+    vtkSmartPointer<vtkRenderer> renderer = vtkSmartPointer<vtkRenderer>::New();
+    renderer->SetBackground( 0, 0, 0 );
 
-  // vtkSmartPointer<vtkImageThreshold> globalThresh = vtkSmartPointer<vtkImageThreshold>::New();
-  // globalThresh->SetInputData( volume );
-  // globalThresh->ThresholdBetween( 200, 1000 );
-  // globalThresh->ReplaceInOn();
-  // globalThresh->SetInValue(1000);
-  // globalThresh->ReplaceOutOn();
-  // globalThresh->SetOutValue(0);
-  // globalThresh->SetOutputScalarTypeToFloat();
-  // globalThresh->Update();
+    vtkSmartPointer<vtkRenderWindow> renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
+    renderWindow->AddRenderer( renderer );
+    vtkSmartPointer<vtkRenderWindowInteractor> interactor = vtkSmartPointer<vtkRenderWindowInteractor>::New();
+    interactor->SetRenderWindow( renderWindow );
 
-  // volume = globalThresh->GetOutput();
+    // Convert the render type input parameter to a lowercase string
+    std::string renderType( argv[2] );
+    std::transform( renderType.begin(), renderType.end(), renderType.begin(), tolower );
 
-  // // Use the Marching cubes algorithm to generate the surface
-  // std::cout << "Generating surface using Marching cubes \n";
+    if ( renderType== "surface" )
+    {
+        std::cout << "\nStarting surface rendering...\n";
 
-  // vtkSmartPointer<vtkMarchingCubes> surface = vtkSmartPointer<vtkMarchingCubes>::New();
-  // surface->SetInputData( volume );
-  // surface->ComputeNormalsOn();
-  // surface->SetValue( 0, 50.0 );
+        // Perform segmentation to extract bone
+        int lowerThresh = 0, upperThresh = 0;
+        double isoValue = 0.0;
 
-  vtkSmartPointer<vtkRenderer> renderer = vtkSmartPointer<vtkRenderer>::New();
-  renderer->SetBackground( 0, 0, 0 );
+        // Get the threshold and isovalue parameters from the user
+        std::cout << "Performing image segmentation \n";
+        std::cout << "Please enter upper and lower threshold values: \n";
+        std::cout << "Lower Threshold = ";
+        std::cin >> lowerThresh;
+        std::cout << "Upper Threshold = ";
+        std::cin >> upperThresh;
 
-  vtkSmartPointer<vtkRenderWindow> renderWindow = vtkSmartPointer<vtkRenderWindow>::New();
-  renderWindow->AddRenderer( renderer );
-  vtkSmartPointer<vtkRenderWindowInteractor> interactor = vtkSmartPointer<vtkRenderWindowInteractor>::New();
-  interactor->SetRenderWindow( renderWindow );
+        std::cout << "Please enter the desired isovalue for the Marching Cubes algortihm: ";
+        std::cin >> isoValue;
 
-  // vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-  // mapper->SetInputConnection( surface->GetOutputPort() );
-  // mapper->ScalarVisibilityOff();
+        // Apply the global threshold
+        vtkSmartPointer<vtkImageThreshold> globalThresh = vtkSmartPointer<vtkImageThreshold>::New();
+        globalThresh->SetInputData( volume );
+        globalThresh->ThresholdBetween( lowerThresh, upperThresh );
+        globalThresh->ReplaceInOn();
+        globalThresh->SetInValue( isoValue + 1 );
+        globalThresh->ReplaceOutOn();
+        globalThresh->SetOutValue(0);
+        globalThresh->SetOutputScalarTypeToFloat();
+        globalThresh->Update();
 
-  // vtkSmartPointer<vtkActor> actor = vtkSmartPointer<vtkActor>::New();
-  // actor->SetMapper( mapper );
+        volume = globalThresh->GetOutput();
 
-  // renderer->AddActor( actor );
+        // Use the Marching cubes algorithm to generate the surface
+        std::cout << "Generating surface using Marching cubes \n";
 
-  // The volume will be displayed by ray-cast alpha compositing.
-  // A ray-cast mapper is needed to do the ray-casting.
-  vtkSmartPointer<vtkFixedPointVolumeRayCastMapper> volumeMapper = vtkSmartPointer<vtkFixedPointVolumeRayCastMapper>::New();
-  volumeMapper->SetInputData( volume );
+        vtkSmartPointer<vtkMarchingCubes> surface = vtkSmartPointer<vtkMarchingCubes>::New();
+        surface->SetInputData( volume );
+        surface->ComputeNormalsOn();
+        surface->SetValue( 0, isoValue );
 
-  // The color transfer function maps voxel intensities to colors.
-  // It is modality-specific, and often anatomy-specific as well.
-  // The goal is to one color for flesh (between 500 and 1000)
-  // and another color for bone (1150 and over).
-  vtkSmartPointer<vtkColorTransferFunction>volumeColor = vtkSmartPointer<vtkColorTransferFunction>::New();
-  volumeColor->AddRGBPoint(0,    0.0, 0.0, 0.0);
-  volumeColor->AddRGBPoint(70,  1.0, 0.5, 0.3);
-  volumeColor->AddRGBPoint(500, 1.0, 0.5, 0.3);
-  volumeColor->AddRGBPoint(1150, 1.0, 1.0, 0.9);
+        vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+        mapper->SetInputConnection( surface->GetOutputPort() );
+        mapper->ScalarVisibilityOff();
 
-  // The opacity transfer function is used to control the opacity
-  // of different tissue types.
-  vtkSmartPointer<vtkPiecewiseFunction> volumeScalarOpacity = vtkSmartPointer<vtkPiecewiseFunction>::New();
-  volumeScalarOpacity->AddPoint(0,    0.00);
-  volumeScalarOpacity->AddPoint(70,  0.15);
-  volumeScalarOpacity->AddPoint(500, 0.15);
-  volumeScalarOpacity->AddPoint(1150, 0.85);
+        vtkSmartPointer<vtkActor> actor = vtkSmartPointer<vtkActor>::New();
+        actor->SetMapper( mapper );
 
-  // The gradient opacity function is used to decrease the opacity
-  // in the "flat" regions of the volume while maintaining the opacity
-  // at the boundaries between tissue types.  The gradient is measured
-  // as the amount by which the intensity changes over unit distance.
-  // For most medical data, the unit distance is 1mm.
-  vtkSmartPointer<vtkPiecewiseFunction> volumeGradientOpacity = vtkSmartPointer<vtkPiecewiseFunction>::New();
-  volumeGradientOpacity->AddPoint(0,   0.0);
-  volumeGradientOpacity->AddPoint(90,  0.5);
-  volumeGradientOpacity->AddPoint(100, 1.0);
+        renderer->AddActor( actor );
+    }
+    else if ( renderType == "volume" )
+    {
+        std::cout << "\nStarting volume rendering...\n";
 
-  // The VolumeProperty attaches the color and opacity functions to the
-  // volume, and sets other volume properties.  The interpolation should
-  // be set to linear to do a high-quality rendering.  The ShadeOn option
-  // turns on directional lighting, which will usually enhance the
-  // appearance of the volume and make it look more "3D".  However,
-  // the quality of the shading depends on how accurately the gradient
-  // of the volume can be calculated, and for noisy data the gradient
-  // estimation will be very poor.  The impact of the shading can be
-  // decreased by increasing the Ambient coefficient while decreasing
-  // the Diffuse and Specular coefficient.  To increase the impact
-  // of shading, decrease the Ambient and increase the Diffuse and Specular.
-  vtkSmartPointer<vtkVolumeProperty> volumeProperty = vtkSmartPointer<vtkVolumeProperty>::New();
-  volumeProperty->SetColor(volumeColor);
-  volumeProperty->SetScalarOpacity(volumeScalarOpacity);
-  volumeProperty->SetGradientOpacity(volumeGradientOpacity);
-  volumeProperty->SetInterpolationTypeToLinear();
-  volumeProperty->ShadeOn();
-  volumeProperty->SetAmbient(0.4);
-  volumeProperty->SetDiffuse(0.6);
-  volumeProperty->SetSpecular(0.2);
+        // Create a ray-cast mapper for the ray-casting of the volume
+        vtkSmartPointer<vtkFixedPointVolumeRayCastMapper> volumeMapper = vtkSmartPointer<vtkFixedPointVolumeRayCastMapper>::New();
+        volumeMapper->SetInputData( volume );
 
-  // The vtkVolume is a vtkProp3D (like a vtkActor) and controls the position
-  // and orientation of the volume in world coordinates.
-  vtkSmartPointer<vtkVolume> vol = vtkSmartPointer<vtkVolume>::New();
-  vol->SetMapper(volumeMapper);
-  vol->SetProperty(volumeProperty);
+        // Create a colour transfer function to map voxel intensities to colours.
+        // For this assignment, we colour tissues in the range of 0 -> 70, 70 -> 400, and 400 -> 1000 (each with a different colour)
+        vtkSmartPointer<vtkColorTransferFunction> colour = vtkSmartPointer<vtkColorTransferFunction>::New();
+        colour->AddRGBPoint( 0,    0.0, 0.0, 0.0 );
+        colour->AddRGBPoint( 200,   1.0, 0.0, 0.0 );
+        colour->AddRGBPoint( 500,  0.0, 1.0, 0.0 );
+        colour->AddRGBPoint( 1000, 0.0, 0.0, 1.0 );
 
-  // Finally, add the volume to the renderer
-  renderer->AddViewProp(vol);
+        // Create a piecewise function to control the opactiy of each tissue type we're showing
+        vtkSmartPointer<vtkPiecewiseFunction> scalarOpacity = vtkSmartPointer<vtkPiecewiseFunction>::New();
+        scalarOpacity->AddPoint( 0,    0.00 );
+        scalarOpacity->AddPoint( 200,   0.15 );
+        scalarOpacity->AddPoint( 500,  0.15 );
+        scalarOpacity->AddPoint( 1000, 0.85 );
 
+        // Set the gradient opacity to keep the opacity high at the boundaries between tissues
+        vtkSmartPointer<vtkPiecewiseFunction> gradientOpacity = vtkSmartPointer<vtkPiecewiseFunction>::New();
+        gradientOpacity->AddPoint( 0,   0.0 );
+        gradientOpacity->AddPoint( 100, 0.8 );
 
+        // Set the parameters for the volume, including shading for the volume (ambient, diffuse, and specular)
+        vtkSmartPointer<vtkVolumeProperty> volumeProperty = vtkSmartPointer<vtkVolumeProperty>::New();
+        volumeProperty->SetColor( colour );
+        volumeProperty->SetScalarOpacity( scalarOpacity );
+        volumeProperty->SetGradientOpacity( gradientOpacity );
+        volumeProperty->SetInterpolationTypeToLinear();
+        volumeProperty->ShadeOn();
+        volumeProperty->SetAmbient( 0.2 );
+        volumeProperty->SetDiffuse( 0.8 );
+        volumeProperty->SetSpecular( 0.9 );
 
+        // Create a vtk volume and add the volume mapper and property we defined above
+        vtkSmartPointer<vtkVolume> vtk_volume = vtkSmartPointer<vtkVolume>::New();
+        vtk_volume->SetMapper( volumeMapper );
+        vtk_volume->SetProperty( volumeProperty );
 
+        renderer->AddViewProp( vtk_volume );
+    }
 
+    renderWindow->Render();
+    interactor->Start();
 
-  renderWindow->Render();
-  interactor->Start();
-  return EXIT_SUCCESS;
+    return EXIT_SUCCESS;
 }
